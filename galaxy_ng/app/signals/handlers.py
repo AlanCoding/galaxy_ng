@@ -27,9 +27,7 @@ from galaxy_ng.app.models import Namespace
 from pulpcore.plugin.models import ContentRedirectContentGuard
 
 from ansible_base.rbac.validators import validate_permissions_for_model
-from ansible_base.rbac.models import RoleTeamAssignment
-from ansible_base.rbac.models import RoleUserAssignment
-from ansible_base.rbac.models import RoleDefinition
+from ansible_base.rbac.models import RoleDefinition, RoleUserAssignment, RoleTeamAssignment, DABPermission
 from ansible_base.rbac.triggers import dab_post_migrate
 from ansible_base.rbac import permission_registry
 
@@ -106,6 +104,22 @@ def associate_namespace_metadata(sender, instance, created, **kwargs):
 
 def create_managed_roles(*args, **kwargs) -> None:
     permission_registry.create_managed_roles(apps)
+    # Implement hack until https://github.com/ansible/django-ansible-base/pull/560 merges
+    bad_perm = DABPermission.objects.filter(codename='view_containernamespace', content_type__app_label='galaxy').first()
+    if bad_perm:
+        bad_perm.delete()
+    # Now check for general sanity if any other duplicate permissions exist
+    all_perms = {}
+    for perm in DABPermission.objects.all():
+        all_perms.setdefault(perm.codename, [])
+        all_perms[perm.codename] += [perm]
+    really_bad_perms = {}
+    for codename, perm_list in all_perms:
+        if len(perm_list) > 1:
+            really_bad_perms[codename] = perm_list
+    if really_bad_perms:
+        print(really_bad_perms)
+        raise RuntimeError(f'Found duplicate permissions, oh no! {really_bad_perms}')
 
 
 dab_post_migrate.connect(create_managed_roles, dispatch_uid="create_managed_roles")
