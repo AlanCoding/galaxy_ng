@@ -103,23 +103,25 @@ def associate_namespace_metadata(sender, instance, created, **kwargs):
 
 
 def create_managed_roles(*args, **kwargs) -> None:
-    permission_registry.create_managed_roles(apps)
     # Implement hack until https://github.com/ansible/django-ansible-base/pull/560 merges
-    bad_perm = DABPermission.objects.filter(codename='view_containernamespace', content_type__app_label='galaxy').first()
-    if bad_perm:
-        bad_perm.delete()
+    for perm in DABPermission.objects.all():
+        cls = perm.content_type.model_class()
+        if cls._meta.proxy or (cls not in permission_registry._registry):
+            print(f'Deleting permission for proxy model {cls._meta.app_label}.{cls._meta.model_name} - {perm.codename}')
+            perm.delete()
     # Now check for general sanity if any other duplicate permissions exist
     all_perms = {}
     for perm in DABPermission.objects.all():
         all_perms.setdefault(perm.codename, [])
         all_perms[perm.codename] += [perm]
     really_bad_perms = {}
-    for codename, perm_list in all_perms:
+    for codename, perm_list in all_perms.items():
         if len(perm_list) > 1:
             really_bad_perms[codename] = perm_list
     if really_bad_perms:
         print(really_bad_perms)
         raise RuntimeError(f'Found duplicate permissions, oh no! {really_bad_perms}')
+    permission_registry.create_managed_roles(apps)
 
 
 dab_post_migrate.connect(create_managed_roles, dispatch_uid="create_managed_roles")
