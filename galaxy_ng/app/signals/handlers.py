@@ -16,6 +16,7 @@ from django.db.models.functions import Concat
 from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
+from django.apps import apps
 from pulp_ansible.app.models import (
     AnsibleDistribution,
     AnsibleRepository,
@@ -29,6 +30,9 @@ from ansible_base.rbac.validators import validate_permissions_for_model
 from ansible_base.rbac.models import RoleTeamAssignment
 from ansible_base.rbac.models import RoleUserAssignment
 from ansible_base.rbac.models import RoleDefinition
+# from ansible_base.rbac.triggers import dab_post_migrate
+from ansible_base.rbac import permission_registry
+
 from pulpcore.plugin.util import assign_role
 from pulpcore.plugin.util import remove_role
 from pulpcore.plugin.models.role import GroupRole, UserRole, Role
@@ -95,6 +99,16 @@ def associate_namespace_metadata(sender, instance, created, **kwargs):
 
     elif ns.metadata_sha256 != instance.metadata_sha256:
         _update_metadata()
+
+
+# ___ DAB RBAC ___
+
+
+def create_managed_roles() -> None:
+    permission_registry.create_managed_roles(apps)
+
+
+# dab_post_migrate.connect(create_managed_roles, dispatch_uid="create_managed_roles")
 
 
 # Signals for synchronizing the pulp roles with DAB RBAC roles

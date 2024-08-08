@@ -419,6 +419,18 @@ ANSIBLE_BASE_ALLOW_SINGLETON_USER_ROLES = True
 ANSIBLE_BASE_ALLOW_SINGLETON_TEAM_ROLES = True
 # Pass ignore_conflicts=False for bulk_create calls for role evaluations
 ANSIBLE_BASE_EVALUATIONS_IGNORE_CONFLICTS = False
+# Set up managed role definitions
+ANSIBLE_BASE_MANAGED_ROLE_REGISTRY = {
+    'platform_auditor': {'name': 'Platform Auditor', 'shortname': 'sys_auditor'},
+    'sys_auditor': {'shortname': 'sys_auditor'},
+    # member role is duplicated, either should work, but we have 2 for latter ownership issues
+    'galaxy_only_team_member': {'name': 'Galaxy Team Member', 'shortname': 'team_member'},
+    'team_member': {},
+    'team_admin': {},
+    # TODO: add organization to the registry later
+    # 'org_admin': {},
+    # 'org_member': {},
+}
 
 # WARNING: This setting is used in database migrations to create a default organization.
 DEFAULT_ORGANIZATION_NAME = "Default"

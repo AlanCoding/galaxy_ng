@@ -6,21 +6,14 @@ from django.db import migrations
 from django.apps import apps as global_apps
 
 from ansible_base.rbac.management import create_dab_permissions
+from ansible_base.rbac.migrations._utils import give_permissions
 
 logger = logging.getLogger(__name__)
 
 
 def create_permissions_as_operation(apps, schema_editor):
+    # TODO: possibly create permissions for more apps here
     create_dab_permissions(global_apps.get_app_config("galaxy"), apps=apps)
-    Permission = apps.get_model('auth', 'Permission')
-    DABPermission = apps.get_model('dab_rbac', 'DABPermission')
-    for perm in Permission.objects.all():
-        print(f'CREATE {perm} {perm.codename}')
-        dab_perm, created = DABPermission.objects.get_or_create(
-            codename=perm.codename,
-            content_type=perm.content_type,
-            name=perm.name
-        )
 
     print(f'FINISHED CREATING PERMISSIONS')
 
@@ -30,6 +23,27 @@ def reverse_create_permissions_as_operation(apps, schema_editor):
     for perm in Permission.objects.all():
         print(f'DELETE {perm} {perm.codename}')
         perm.delete()
+
+
+def split_pulp_roles(apps, schema_editor):
+    Role = apps.get_model('core', 'Role')
+    UserRole = apps.get_model('core', 'UserRole')
+    GroupRole = apps.get_model('core', 'GroupRole')
+
+    for corerole in Role.objects.all():
+        split_roles = {}
+        for assignment_cls in (UserRole, GroupRole):
+            for pulp_assignment in assignment_cls.objects.filter(role=corerole, content_type__isnull=False):
+                if pulp_assignment.content_type_id not in split_roles:
+                    new_data = {
+                        'description': corerole.description,
+                        'name': f'{corerole.name}_{pulp_assignment.content_type.model}'
+                    }
+                    new_role = Role(**new_data)
+                    new_role.save()
+                    split_roles[pulp_assignment.content_type_id] = new_role
+            pulp_assignment.role = split_roles[pulp_assignment.content_type_id]
+            pulp_assignment.save(update_fields=['role'])
 
 
 def copy_roles_to_role_definitions(apps, schema_editor):
@@ -43,20 +57,46 @@ def copy_roles_to_role_definitions(apps, schema_editor):
 
         content_types = set()
         for perm in corerole.permissions.all():
-            dabperm = DABPermission.objects.get(
+            dabperm = DABPermission.objects.filter(
                 codename=perm.codename,
                 content_type=perm.content_type,
                 name=perm.name
-            )
-            roledef.permissions.add(dabperm)
-            content_types.add(perm.content_type)
+            ).first()
+            if dabperm:
+                roledef.permissions.add(dabperm)
+                content_types.add(perm.content_type)
 
-        # FIXME - when dab supports multi-content type roles
-        content_types = list(content_types)
-        if len(content_types) == 1:
-            roledef.content_type = content_types[0]
-            roledef.content_type_id = content_types[0].id
-            roledef.save()
+        if roledef.permissions.count() == 0:
+            print(f'Role {corerole.name} has no DAB RBAC permissions so not migrating it')
+            roledef.delete()  # oh well
+
+
+def migrate_role_assignments(apps, schema_editor):
+    UserRole = apps.get_model('core', 'UserRole')
+    GroupRole = apps.get_model('core', 'GroupRole')
+    RoleDefinition = apps.get_model('dab_rbac', 'RoleDefinition')
+    RoleUserAssignment = apps.get_model('dab_rbac', 'RoleUserAssignment')
+    RoleTeamAssignment = apps.get_model('dab_rbac', 'RoleTeamAssignment')
+
+    for user_role in UserRole.objects.all():
+        rd = RoleDefinition.objects.filter(name=user_role.role.name).first()
+        if not rd:
+            continue
+        if not user_role.object_id:
+            # system role
+            RoleUserAssignment.objects.create(role_definition=rd, user=user_role.user)
+        else:
+            give_permissions(apps, rd, users=[user_role.user], object_id=user_role.object_id, content_type_id=user_role.content_type_id)
+
+    for group_role in GroupRole.objects.all():
+        rd = RoleDefinition.objects.filter(name=group_role.role.name).first()
+        if not rd:
+            continue
+        actor = group_role.group.team
+        if not group_role.object_id:
+            RoleTeamAssignment.objects.create(role_definition=rd, team=actor)
+        else:
+            give_permissions(apps, rd, teams=[actor], object_id=group_role.object_id, content_type_id=group_role.content_type_id)
 
 
 def reverse_copy_roles_to_role_definitions(apps, schema_editor):
@@ -93,8 +133,10 @@ class Migration(migrations.Migration):
             create_permissions_as_operation,
             reverse_create_permissions_as_operation
         ),
-        # migrations.RunPython(
-        #     copy_roles_to_role_definitions,
-        #     reverse_copy_roles_to_role_definitions
-        # ),
+        migrations.RunPython(split_pulp_roles, migrations.RunPython.noop),
+        migrations.RunPython(
+            copy_roles_to_role_definitions,
+            reverse_copy_roles_to_role_definitions
+        ),
+        migrations.RunPython(migrate_role_assignments, migrations.RunPython.noop)
     ]
