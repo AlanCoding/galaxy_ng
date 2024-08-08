@@ -104,7 +104,7 @@ def associate_namespace_metadata(sender, instance, created, **kwargs):
 # ___ DAB RBAC ___
 
 
-def create_managed_roles() -> None:
+def create_managed_roles(*args, **kwargs) -> None:
     permission_registry.create_managed_roles(apps)
 
 
