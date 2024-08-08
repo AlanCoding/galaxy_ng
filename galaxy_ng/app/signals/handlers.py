@@ -30,7 +30,7 @@ from ansible_base.rbac.validators import validate_permissions_for_model
 from ansible_base.rbac.models import RoleTeamAssignment
 from ansible_base.rbac.models import RoleUserAssignment
 from ansible_base.rbac.models import RoleDefinition
-# from ansible_base.rbac.triggers import dab_post_migrate
+from ansible_base.rbac.triggers import dab_post_migrate
 from ansible_base.rbac import permission_registry
 
 from pulpcore.plugin.util import assign_role
@@ -108,7 +108,7 @@ def create_managed_roles() -> None:
     permission_registry.create_managed_roles(apps)
 
 
-# dab_post_migrate.connect(create_managed_roles, dispatch_uid="create_managed_roles")
+dab_post_migrate.connect(create_managed_roles, dispatch_uid="create_managed_roles")
 
 
 # Signals for synchronizing the pulp roles with DAB RBAC roles
